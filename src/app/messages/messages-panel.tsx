@@ -34,6 +34,7 @@ export default function MessagesPanel({ initialMessages }: Props) {
     setForm({
       label: msg.label,
       message: msg.message,
+      send_now: msg.send_now ?? false,
       is_announcement: msg.is_announcement,
       interval_minutes: msg.interval_minutes,
       enabled: msg.enabled,
