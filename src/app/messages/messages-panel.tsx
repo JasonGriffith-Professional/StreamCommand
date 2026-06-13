@@ -11,6 +11,7 @@ interface Props {
 const BLANK: Omit<RecurringMessage, "id" | "created_at" | "created_by" | "last_sent_at"> = {
   label: "",
   message: "",
+  send_now: false,
   is_announcement: false,
   interval_minutes: 30,
   enabled: true,
