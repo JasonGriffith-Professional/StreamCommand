@@ -6,7 +6,7 @@ export default function LoginButton() {
   async function handleLogin() {
     const supabase = createClient();
     await supabase.auth.signInWithOAuth({
-      provider: "discord",
+      provider: "twitch",
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
       },
@@ -16,9 +16,9 @@ export default function LoginButton() {
   return (
     <button
       onClick={handleLogin}
-      className="w-full rounded-lg bg-indigo-600 px-4 py-3 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors"
+      className="w-full rounded-lg bg-purple-700 px-4 py-3 text-sm font-semibold text-white hover:bg-purple-600 transition-colors"
     >
-      Sign in with Discord
+      Sign in with Twitch
     </button>
   );
 }
