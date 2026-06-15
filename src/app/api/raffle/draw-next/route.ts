@@ -4,18 +4,20 @@ import { createClient } from "@/lib/supabase/server";
 export async function POST() {
   const supabase = await createClient();
 
-  // Load current rusher queue
-  const { data: queue } = await supabase
+  // Load full queue for accurate max position, but only rotate active rushers
+  const { data: allQueue } = await supabase
     .from("ftk_rusher_queue")
     .select("*")
     .order("position");
 
-  if (!queue || queue.length < 2)
+  const queue = allQueue?.filter((r) => !r.off_duty) ?? [];
+
+  if (queue.length < 2)
     return NextResponse.json({ error: "Need at least 2 rushers in queue" }, { status: 400 });
 
-  // Rotate: move position-0 rusher to the end
+  // Rotate: move position-0 rusher to the end (skipped, not drawn — stays active)
   const [current, ...rest] = queue;
-  const maxPos = Math.max(...queue.map((r) => r.position));
+  const maxPos = Math.max(...(allQueue?.map((r) => r.position) ?? [0]));
   await supabase.from("ftk_rusher_queue").update({ position: maxPos + 1 }).eq("id", current.id);
 
   const next = rest[0]; // rusher B
@@ -54,8 +56,11 @@ export async function POST() {
     .update({ rusher_twitch_name: rusher, active: false, end_time: null, updated_at: new Date().toISOString() })
     .eq("id", 1);
 
-  // Remove winners from entry pool
-  await supabase.from("ftk_raffle_entries").delete().in("twitch_name", winners);
+  // Remove winners from entry pool; delete drawn rusher (they re-queue with !onduty)
+  await Promise.all([
+    supabase.from("ftk_raffle_entries").delete().in("twitch_name", winners),
+    supabase.from("ftk_rusher_queue").delete().eq("id", next.id),
+  ]);
 
   // Tell bot to post to chat
   try {

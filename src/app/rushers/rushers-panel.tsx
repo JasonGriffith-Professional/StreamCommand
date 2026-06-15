@@ -4,18 +4,22 @@ import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
-interface RusherQueueRow { id: number; position: number; twitch_name: string; group_size: number; }
+interface RusherQueueRow { id: number; position: number; twitch_name: string; group_size: number; off_duty: boolean; }
 
 interface Props {
   initialQueue: RusherQueueRow[];
+  carryCounts: Record<string, number>;
 }
 
-export default function RushersPanel({ initialQueue }: Props) {
+export default function RushersPanel({ initialQueue, carryCounts }: Props) {
   const [queue, setQueue] = useState(initialQueue);
   const [newName, setNewName] = useState("");
   const [newSize, setNewSize] = useState(1);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const activeQueue = queue.filter((r) => !r.off_duty);
+  const offDutyQueue = queue.filter((r) => r.off_duty);
 
   useEffect(() => {
     const supabase = createClient();
@@ -45,6 +49,24 @@ export default function RushersPanel({ initialQueue }: Props) {
     if (!confirm(`Remove ${name} from the queue?`)) return;
     await fetch(`/api/rushers/queue/${id}`, { method: "DELETE" });
     setQueue((prev) => prev.filter((r) => r.id !== id));
+  }, []);
+
+  const setOffDuty = useCallback(async (id: number) => {
+    await fetch(`/api/rushers/queue/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ off_duty: true }),
+    });
+    setQueue((prev) => prev.map((r) => r.id === id ? { ...r, off_duty: true } : r));
+  }, []);
+
+  const restore = useCallback(async (id: number) => {
+    await fetch(`/api/rushers/queue/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ off_duty: false }),
+    });
+    setQueue((prev) => prev.map((r) => r.id === id ? { ...r, off_duty: false } : r));
   }, []);
 
   const addRusher = useCallback(async (e: React.FormEvent) => {
@@ -78,13 +100,13 @@ export default function RushersPanel({ initialQueue }: Props) {
         </p>
       </div>
 
-      {/* Queue list */}
+      {/* Active queue */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-900">
-        {queue.length === 0 ? (
+        {activeQueue.length === 0 ? (
           <p className="text-sm text-zinc-600 italic text-center py-10">No rushers on duty.</p>
         ) : (
           <div className="divide-y divide-zinc-800">
-            {queue.map((r, i) => (
+            {activeQueue.map((r, i) => (
               <div key={r.id ?? r.twitch_name} className={cn(
                 "flex items-center gap-3 px-4 py-3",
                 i === 0 && "bg-green-950/40"
@@ -100,12 +122,19 @@ export default function RushersPanel({ initialQueue }: Props) {
                     {r.twitch_name}
                   </span>
                   <span className="text-xs text-zinc-500 ml-2">×{r.group_size} group</span>
+                  {carryCounts[r.twitch_name.toLowerCase()] != null && (
+                    <span className="text-xs text-purple-400 ml-auto mr-2">
+                      {carryCounts[r.twitch_name.toLowerCase()]} carries
+                    </span>
+                  )}
                 </div>
                 <div className="flex gap-1">
                   <button onClick={() => move(r.id, "up")} disabled={i === 0}
                     className="w-7 h-7 rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 text-xs">↑</button>
-                  <button onClick={() => move(r.id, "down")} disabled={i === queue.length - 1}
+                  <button onClick={() => move(r.id, "down")} disabled={i === activeQueue.length - 1}
                     className="w-7 h-7 rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 text-xs">↓</button>
+                  <button onClick={() => setOffDuty(r.id)}
+                    className="px-2 h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-xs text-zinc-300">Off</button>
                   <button onClick={() => remove(r.id, r.twitch_name)}
                     className="w-7 h-7 rounded bg-red-900/60 hover:bg-red-800/60 text-red-400 text-xs">✕</button>
                 </div>
@@ -114,6 +143,36 @@ export default function RushersPanel({ initialQueue }: Props) {
           </div>
         )}
       </div>
+
+      {/* Off-duty backup pool */}
+      {offDutyQueue.length > 0 && (
+        <div>
+          <h2 className="text-sm font-semibold text-zinc-500 mb-2 uppercase tracking-wider">Off Duty — Backup Pool</h2>
+          <div className="rounded-xl border border-zinc-700/50 bg-zinc-900/50 divide-y divide-zinc-800">
+            {offDutyQueue.map((r) => (
+              <div key={r.id} className="flex items-center gap-3 px-4 py-3">
+                <div className="flex items-center flex-1">
+                  <span className="text-sm text-zinc-500">{r.twitch_name}</span>
+                  <span className="text-xs text-zinc-600 ml-2">×{r.group_size} group</span>
+                  {carryCounts[r.twitch_name.toLowerCase()] != null && (
+                    <span className="text-xs text-purple-400/60 ml-auto mr-2">
+                      {carryCounts[r.twitch_name.toLowerCase()]} carries
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-1">
+                  <button onClick={() => restore(r.id)}
+                    className="px-2 h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-xs text-zinc-200">
+                    Restore
+                  </button>
+                  <button onClick={() => remove(r.id, r.twitch_name)}
+                    className="w-7 h-7 rounded bg-red-900/60 hover:bg-red-800/60 text-red-400 text-xs">✕</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Add manually */}
       <div>

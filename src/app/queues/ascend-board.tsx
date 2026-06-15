@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
-interface RusherQueueRow { id: number; position: number; twitch_name: string; group_size: number; }
+interface RusherQueueRow { id: number; position: number; twitch_name: string; group_size: number; off_duty: boolean; }
 interface RaffleState { active: boolean; end_time: string | null; rusher_twitch_name: string | null; entry_count: number; paused: boolean; pause_remaining_secs: number | null; }
 interface RaffleEntry { id: number; twitch_name: string; joined_at: string; }
 interface BadActor { id: number; twitch_name: string; ascend_backouts: number; offduty_backouts: number; banned: boolean; notes: string; }
@@ -14,15 +14,20 @@ interface Props {
   initialRaffleState: RaffleState;
   initialEntries: RaffleEntry[];
   initialBadActors: BadActor[];
+  initialChannel: string;
+  initialTestTimer: boolean;
 }
 
-export default function AscendBoard({ initialRusherQueue, initialRaffleState, initialEntries, initialBadActors }: Props) {
+export default function AscendBoard({ initialRusherQueue, initialRaffleState, initialEntries, initialBadActors, initialChannel, initialTestTimer }: Props) {
   const [rusherQueue, setRusherQueue] = useState(initialRusherQueue);
   const [raffleState, setRaffleState] = useState(initialRaffleState);
   const [entries, setEntries] = useState(initialEntries);
   const [badActors, setBadActors] = useState(initialBadActors);
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [showBadActors, setShowBadActors] = useState(false);
+  const [activeChannel, setActiveChannel] = useState(initialChannel);
+  const [testTimer, setTestTimer] = useState(initialTestTimer);
+  const [switchingChannel, setSwitchingChannel] = useState(false);
   const [drawCount, setDrawCount] = useState(() => {
     if (typeof window === "undefined") return 1;
     return parseInt(localStorage.getItem("ftk_draw_count") ?? "1", 10) || 1;
@@ -34,7 +39,7 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
     const channel = supabase
       .channel("ascend-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "ftk_rusher_queue" }, () => {
-        supabase.from("ftk_rusher_queue").select("*").order("position").then(({ data }) => {
+        supabase.from("ftk_rusher_queue").select("*").eq("off_duty", false).order("position").then(({ data }) => {
           if (data) setRusherQueue(data);
         });
       })
@@ -64,7 +69,7 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
       const [{ data: e }, { data: s }, { data: q }] = await Promise.all([
         supabase.from("ftk_raffle_entries").select("*").order("joined_at"),
         supabase.from("ftk_raffle_state").select("*").eq("id", 1).single(),
-        supabase.from("ftk_rusher_queue").select("*").order("position"),
+        supabase.from("ftk_rusher_queue").select("*").eq("off_duty", false).order("position"),
       ]);
       if (e) setEntries((prev) => JSON.stringify(prev.map(x=>x.id)) === JSON.stringify(e.map((x:typeof prev[0])=>x.id)) ? prev : e);
       if (s) setRaffleState((prev) => JSON.stringify(prev) === JSON.stringify(s) ? prev : s);
@@ -119,12 +124,22 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
 
   const [drawError, setDrawError] = useState<string | null>(null);
   const [lastDraw, setLastDraw] = useState<{ winners: string[]; rusher: string | null } | null>(null);
-  const [drawingNext, setDrawingNext] = useState(false);
+  const [skippingNext, setSkippingNext] = useState(false);
   const [shuffling, setShuffling] = useState(false);
   const [sortAlpha, setSortAlpha] = useState(false);
   const [selectedRusher, setSelectedRusher] = useState<string>(() =>
     initialRusherQueue[0]?.twitch_name ?? "barricade"
   );
+
+  // If the selected rusher is no longer active (manually set off-duty, or drawn),
+  // snap the selection to the new queue head so the next draw goes to the right person.
+  useEffect(() => {
+    if (selectedRusher === "barricade") return;
+    const stillActive = rusherQueue.some((r) => r.twitch_name.toLowerCase() === selectedRusher.toLowerCase());
+    if (!stillActive) {
+      setSelectedRusher(rusherQueue[0]?.twitch_name ?? "barricade");
+    }
+  }, [rusherQueue, selectedRusher]);
 
   const runShuffleAnimation = useCallback((entriesList: typeof entries, durationMs: number) => {
     setShuffling(true);
@@ -166,18 +181,16 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
       setRaffleState((prev) => ({ ...prev, active: false, end_time: null }));
       const winnerSet = new Set((data.winners as string[]).map((w: string) => w.toLowerCase()));
       setEntries((prev) => prev.filter((e) => !winnerSet.has(e.twitch_name.toLowerCase())));
-      // Rotate the drawn rusher to back (skip for Barricade — not in queue)
+      // Remove drawn rusher from active list — they're now off_duty on the server
       if (!isBarricade) {
         setRusherQueue((prev) => {
-          const idx = prev.findIndex((r) => r.twitch_name.toLowerCase() === rusherForDraw.toLowerCase());
-          if (idx < 0 || prev.length < 2) return prev;
-          const copy = [...prev];
-          copy.push(copy.splice(idx, 1)[0]);
-          // Auto-advance dropdown + draw count to the new head
+          const copy = prev.filter((r) => r.twitch_name.toLowerCase() !== rusherForDraw.toLowerCase());
           const newHead = copy[0];
           if (newHead) {
             setSelectedRusher(newHead.twitch_name);
             setDrawCount((c) => { const v = newHead.group_size; localStorage.setItem("ftk_draw_count", String(v)); return v; });
+          } else {
+            setSelectedRusher("barricade");
           }
           return copy;
         });
@@ -187,27 +200,6 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
       setDrawError(body.error ?? "Draw failed");
     }
   }, [entries, drawCount, selectedRusher, runShuffleAnimation]);
-
-  const drawNext = useCallback(async () => {
-    setDrawingNext(true);
-    const res = await fetch("/api/raffle/draw-next", { method: "POST" });
-    if (res.ok) {
-      const data = await res.json();
-      setLastDraw({ winners: data.winners, rusher: data.rusher });
-      const winnerSet = new Set((data.winners as string[]).map((w: string) => w.toLowerCase()));
-      setEntries((prev) => prev.filter((e) => !winnerSet.has(e.twitch_name.toLowerCase())));
-      // Rotate the rusher queue locally
-      setRusherQueue((prev) => {
-        if (prev.length < 2) return prev;
-        const [first, ...rest] = prev;
-        return [...rest, first];
-      });
-    } else {
-      const body = await res.json().catch(() => ({}));
-      setDrawError(body.error ?? "Draw failed");
-    }
-    setDrawingNext(false);
-  }, []);
 
   const reopenQueue = useCallback(async () => {
     if (raffleState.active) {
@@ -230,6 +222,38 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
     }
   }, [raffleState.active]);
 
+  const skipAndDrawNext = useCallback(async () => {
+    if (rusherQueue.length < 2 || entries.length === 0) return;
+    setSkippingNext(true);
+    setDrawError(null);
+    const [, res] = await Promise.all([
+      runShuffleAnimation(entries, 1200),
+      fetch("/api/raffle/draw-next", { method: "POST" }),
+    ]);
+    if (res.ok) {
+      const data = await res.json();
+      setLastDraw({ winners: data.winners, rusher: data.rusher });
+      const winnerSet = new Set((data.winners as string[]).map((w: string) => w.toLowerCase()));
+      setEntries((prev) => prev.filter((e) => !winnerSet.has(e.twitch_name.toLowerCase())));
+      // Head moves to back (still active), drawn rusher removed
+      setRusherQueue((prev) => {
+        if (prev.length < 2) return prev;
+        const [skipped, drawn, ...rest] = prev;
+        const updated = [...rest, skipped];
+        const newHead = updated[0];
+        if (newHead) {
+          setSelectedRusher(newHead.twitch_name);
+          setDrawCount(() => { const v = newHead.group_size; localStorage.setItem("ftk_draw_count", String(v)); return v; });
+        }
+        return updated.filter((r) => r.twitch_name.toLowerCase() !== drawn.twitch_name.toLowerCase());
+      });
+    } else {
+      const body = await res.json().catch(() => ({}));
+      setDrawError(body.error ?? "Skip draw failed");
+    }
+    setSkippingNext(false);
+  }, [rusherQueue, entries, runShuffleAnimation]);
+
   const [manualEntry, setManualEntry] = useState("");
   const addManualEntry = useCallback(async () => {
     const name = manualEntry.trim();
@@ -244,6 +268,26 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
     }
     setManualEntry("");
   }, [manualEntry]);
+
+  const switchChannel = useCallback(async (channel: string) => {
+    if (channel === activeChannel || switchingChannel) return;
+    setSwitchingChannel(true);
+    const res = await fetch("/api/bot/channel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ channel }),
+    });
+    if (res.ok) setActiveChannel(channel);
+    setSwitchingChannel(false);
+  }, [activeChannel, switchingChannel]);
+
+  const toggleTestTimer = useCallback(async () => {
+    const res = await fetch("/api/bot/test-timer", { method: "POST" });
+    if (res.ok) {
+      const data = await res.json();
+      setTestTimer(data.test_timer);
+    }
+  }, []);
 
   const m = Math.floor(secondsLeft / 60);
   const s = secondsLeft % 60;
@@ -285,6 +329,39 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
           {!raffleState.active && (
             <span className="text-xs text-zinc-600 italic">No active raffle</span>
           )}
+          {/* Channel selector */}
+          <div className="flex items-center gap-1 rounded-lg border border-zinc-700 overflow-hidden">
+            {["barricade", "psynister"].map((ch) => (
+              <button
+                key={ch}
+                onClick={() => switchChannel(ch)}
+                disabled={switchingChannel}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50",
+                  activeChannel === ch
+                    ? "bg-purple-700 text-white"
+                    : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
+                )}
+              >
+                #{ch}
+              </button>
+            ))}
+          </div>
+
+          {/* Test timer toggle */}
+          <button
+            onClick={toggleTestTimer}
+            className={cn(
+              "px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors",
+              testTimer
+                ? "bg-orange-900/60 border-orange-700/60 text-orange-300 hover:bg-orange-800/60"
+                : "bg-zinc-800 border-zinc-700 text-zinc-500 hover:text-zinc-300"
+            )}
+            title={testTimer ? "Test timer ON (10s) — click to disable" : "Enable test timer (10s raffles)"}
+          >
+            {testTimer ? "⚡ Test 10s" : "Test Timer"}
+          </button>
+
           <button
             onClick={() => setShowBadActors((v) => !v)}
             className="px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-900/60 hover:bg-purple-800/60 text-purple-300 border border-purple-800/40 transition-colors"
@@ -559,6 +636,14 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
                       <p className="text-xs text-zinc-500">×{r.group_size} group</p>
                     </div>
                     <div className="flex gap-1 flex-shrink-0">
+                      {i === 0 && rusherQueue.length >= 2 && entries.length > 0 && (
+                        <button
+                          onClick={skipAndDrawNext}
+                          disabled={skippingNext}
+                          className="px-1.5 h-7 rounded bg-amber-900/60 hover:bg-amber-800/60 disabled:opacity-40 text-amber-300 text-xs font-medium whitespace-nowrap"
+                          title="Skip this rusher (send to back) and draw for the next one"
+                        >⏭ Skip</button>
+                      )}
                       <button
                         onClick={() => moveRusher(r.id, "up")}
                         disabled={i === 0}

@@ -13,7 +13,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "No entries" }, { status: 400 });
 
   const { data: queueHead } = await supabase
-    .from("ftk_rusher_queue").select("twitch_name").order("position").limit(1).single();
+    .from("ftk_rusher_queue").select("twitch_name").eq("off_duty", false).order("position").limit(1).single();
 
   // Shuffle 3x
   const pool = entries.map((e) => e.twitch_name);
@@ -37,17 +37,6 @@ export async function POST(req: Request) {
   });
   if (logError) return NextResponse.json({ error: logError.message }, { status: 500 });
 
-  // Rotate the current rusher to the back — skip if "barricade" (not in queue)
-  if (!isBarricade) {
-    const { data: fullQueue } = await supabase.from("ftk_rusher_queue").select("*").order("position");
-    if (fullQueue && fullQueue.length > 1) {
-      const maxPos = Math.max(...fullQueue.map((r) => r.position));
-      // Rotate whichever rusher matches the selected one (or position-0 if none matched)
-      const target = fullQueue.find((r) => r.twitch_name.toLowerCase() === rusher?.toLowerCase()) ?? fullQueue[0];
-      await supabase.from("ftk_rusher_queue").update({ position: maxPos + 1 }).eq("id", target.id);
-    }
-  }
-
   // Close the raffle, remove only the drawn winners from the pool (rest stay for replacement draws)
   await Promise.all([
     supabase.from("ftk_raffle_state").update({ active: false, end_time: null, updated_at: new Date().toISOString() }).eq("id", 1),
@@ -63,6 +52,11 @@ export async function POST(req: Request) {
     });
   } catch {
     // Bot not running — web panel still shows winners, chat just won't get the message
+  }
+
+  // Remove drawn rusher from the queue — they re-queue with !onduty when ready
+  if (!isBarricade && rusher) {
+    await supabase.from("ftk_rusher_queue").delete().ilike("twitch_name", rusher);
   }
 
   return NextResponse.json({ winners, rusher });

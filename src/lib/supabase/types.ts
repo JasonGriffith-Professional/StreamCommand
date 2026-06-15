@@ -1,60 +1,53 @@
-export type ActivityName = "ascend" | "t15maps" | "groupup" | "bosshelp" | "campaign" | "quest";
+// ─── v2 schema types ───────────────────────────────────────────────────────
+// These match the tables actually in the database.
+// See supabase/schema_v2.sql for the full DDL.
 
-export type WhisperStatus = "sent" | "disabled" | "failed";
-
-export type FtkRole = "admin" | "mod" | "viewer";
-
-export interface Rusher {
-  id: string;
+export interface RusherQueueRow {
+  id: number;
+  position: number;
   twitch_name: string;
-  ign: string;
-  on_duty: boolean;
-  activities: ActivityName[];
-  current_activity: ActivityName | null;
-  last_carry_at: string | null;
-  created_at: string;
+  group_size: number;
+  off_duty: boolean;
+  added_at: string;
 }
 
-export interface PendingRusher {
-  id: string;
+export interface RaffleState {
+  id: 1;
+  active: boolean;
+  end_time: string | null;
+  rusher_twitch_name: string | null;
+  entry_count: number;
+  paused: boolean;
+  pause_remaining_secs: number | null;
+  updated_at: string;
+}
+
+export interface RaffleEntry {
+  id: number;
   twitch_name: string;
   joined_at: string;
 }
 
-export interface QueueEntry {
-  id: string;
-  queue_name: ActivityName;
-  twitch_username: string;
-  joined_at: string;
-}
-
-export interface Carry {
-  id: string;
-  queue_name: ActivityName;
-  rusher_id: string | null;
+export interface DrawLog {
+  id: number;
+  rusher_twitch_name: string | null;
   winners: string[];
-  passcode_used: boolean;
-  chat_announced: boolean;
+  group_size: number;
+  entries_count: number;
   drawn_at: string;
-  event_id: string | null;
 }
 
-export interface WhisperResult {
-  id: string;
-  carry_id: string;
-  recipient_username: string;
-  status: WhisperStatus;
-  bot_used: string | null;
-  sent_at: string;
-  error_detail: string | null;
+export interface BadActor {
+  id: number;
+  twitch_name: string;
+  ascend_backouts: number;
+  offduty_backouts: number;
+  banned: boolean;
+  notes: string;
+  updated_at: string;
 }
 
-export interface ActivityType {
-  name: ActivityName;
-  label: string;
-  short_label: string;
-  sort_order: number;
-}
+// ─── recurring messages ────────────────────────────────────────────────────
 
 export interface RecurringMessage {
   id: string;
@@ -69,27 +62,13 @@ export interface RecurringMessage {
   created_by: string | null;
 }
 
-export interface FtkEvent {
-  id: string;
-  name: string;
-  started_at: string | null;
-  ended_at: string | null;
-  notes: string | null;
-  created_by: string | null;
-  created_at: string;
-}
+// ─── lookup ────────────────────────────────────────────────────────────────
 
-// Generic Supabase Database type shape (enough for typed queries)
-export type Database = {
-  public: {
-    Tables: {
-      ftk_rushers: { Row: Rusher; Insert: Omit<Rusher, "id" | "created_at">; Update: Partial<Omit<Rusher, "id">> };
-      ftk_pending_rushers: { Row: PendingRusher; Insert: Omit<PendingRusher, "id" | "joined_at">; Update: Partial<PendingRusher> };
-      ftk_queue_entries: { Row: QueueEntry; Insert: Omit<QueueEntry, "id" | "joined_at">; Update: Partial<QueueEntry> };
-      ftk_carries: { Row: Carry; Insert: Omit<Carry, "id" | "drawn_at">; Update: Partial<Carry> };
-      ftk_whisper_results: { Row: WhisperResult; Insert: Omit<WhisperResult, "id" | "sent_at">; Update: Partial<WhisperResult> };
-      ftk_activity_types: { Row: ActivityType; Insert: ActivityType; Update: Partial<ActivityType> };
-      ftk_events: { Row: FtkEvent; Insert: Omit<FtkEvent, "id" | "created_at">; Update: Partial<FtkEvent> };
-    };
-  };
-};
+export type ActivityName = "ascend" | "t15maps" | "groupup" | "bosshelp" | "campaign" | "quest";
+
+export interface ActivityType {
+  name: ActivityName;
+  label: string;
+  short_label: string;
+  sort_order: number;
+}
