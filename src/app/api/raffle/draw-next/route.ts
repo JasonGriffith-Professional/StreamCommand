@@ -62,16 +62,6 @@ export async function POST() {
     supabase.from("ftk_rusher_queue").delete().eq("id", next.id),
   ]);
 
-  // Tell bot to post to chat
-  try {
-    await fetch("http://127.0.0.1:7655/winners", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ winners, rusher, group_size: count }),
-    });
-  } catch {
-    // bot not running
-  }
-
+  // Chat message is sent by the bot, which polls ftk_draw_log for chat_announced=false rows.
   return NextResponse.json({ winners, rusher, group_size: count });
 }

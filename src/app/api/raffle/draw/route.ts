@@ -43,18 +43,8 @@ export async function POST(req: Request) {
     supabase.from("ftk_raffle_entries").delete().in("twitch_name", winners),
   ]);
 
-  // Tell the local bot to post the winners message to Twitch + YouTube
-  try {
-    await fetch("http://127.0.0.1:7655/winners", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ winners, rusher, group_size: count }),
-    });
-  } catch {
-    // Bot not running — web panel still shows winners, chat just won't get the message
-  }
-
   // Remove drawn rusher from the queue — they re-queue with !onduty when ready
+  // Chat message is sent by the bot, which polls ftk_draw_log for chat_announced=false rows.
   if (!isBarricade && rusher) {
     await supabase.from("ftk_rusher_queue").delete().ilike("twitch_name", rusher);
   }
