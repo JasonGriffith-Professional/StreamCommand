@@ -201,6 +201,42 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
     }
   }, [entries, drawCount, selectedRusher, runShuffleAnimation]);
 
+  const quickDrawForHead = useCallback(async () => {
+    const head = rusherQueue[0];
+    if (!head || entries.length === 0) return;
+    setDrawError(null);
+    setSortAlpha(false);
+    const [, res] = await Promise.all([
+      runShuffleAnimation(entries, 1200),
+      fetch("/api/raffle/draw", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ count: head.group_size, rusher: head.twitch_name }),
+      }),
+    ]);
+    if (res.ok) {
+      const data = await res.json();
+      setLastDraw({ winners: data.winners, rusher: data.rusher });
+      setRaffleState((prev) => ({ ...prev, active: false, end_time: null }));
+      const winnerSet = new Set((data.winners as string[]).map((w: string) => w.toLowerCase()));
+      setEntries((prev) => prev.filter((e) => !winnerSet.has(e.twitch_name.toLowerCase())));
+      setRusherQueue((prev) => {
+        const copy = prev.filter((r) => r.twitch_name.toLowerCase() !== head.twitch_name.toLowerCase());
+        const newHead = copy[0];
+        if (newHead) {
+          setSelectedRusher(newHead.twitch_name);
+          setDrawCount(() => { const v = newHead.group_size; localStorage.setItem("ftk_draw_count", String(v)); return v; });
+        } else {
+          setSelectedRusher("barricade");
+        }
+        return copy;
+      });
+    } else {
+      const body = await res.json().catch(() => ({}));
+      setDrawError(body.error ?? "Draw failed");
+    }
+  }, [rusherQueue, entries, runShuffleAnimation]);
+
   const reopenQueue = useCallback(async () => {
     if (raffleState.active) {
       // Close early — optimistic
@@ -435,7 +471,7 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
             </div>
             {rusherQueue.length >= 1 && entries.length > 0 && (
               <button
-                onClick={manualDraw}
+                onClick={quickDrawForHead}
                 disabled={entries.length === 0}
                 className="mt-2 px-3 py-1.5 rounded-lg bg-green-800/60 hover:bg-green-700/60 disabled:opacity-40 text-sm font-semibold text-green-200 transition-colors"
               >
