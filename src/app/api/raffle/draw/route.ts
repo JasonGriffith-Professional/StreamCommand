@@ -49,5 +49,17 @@ export async function POST(req: Request) {
     await supabase.from("ftk_rusher_queue").delete().ilike("twitch_name", rusher);
   }
 
+  // Update rusher_twitch_name to whoever is now at the head of the queue
+  const { data: nextHead } = await supabase
+    .from("ftk_rusher_queue")
+    .select("twitch_name")
+    .eq("off_duty", false)
+    .order("position")
+    .limit(1)
+    .single();
+  await supabase.from("ftk_raffle_state")
+    .update({ rusher_twitch_name: nextHead?.twitch_name ?? null })
+    .eq("id", 1);
+
   return NextResponse.json({ winners, rusher });
 }
