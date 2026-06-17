@@ -28,10 +28,6 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
   const [activeChannel, setActiveChannel] = useState(initialChannel);
   const [testTimer, setTestTimer] = useState(initialTestTimer);
   const [switchingChannel, setSwitchingChannel] = useState(false);
-  const [drawCount, setDrawCount] = useState(() => {
-    if (typeof window === "undefined") return 1;
-    return parseInt(localStorage.getItem("ftk_draw_count") ?? "1", 10) || 1;
-  });
 
   // Realtime subscriptions
   useEffect(() => {
@@ -127,19 +123,6 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
   const [skippingNext, setSkippingNext] = useState(false);
   const [shuffling, setShuffling] = useState(false);
   const [sortAlpha, setSortAlpha] = useState(false);
-  const [selectedRusher, setSelectedRusher] = useState<string>(() =>
-    initialRusherQueue[0]?.twitch_name ?? "barricade"
-  );
-
-  // If the selected rusher is no longer active (manually set off-duty, or drawn),
-  // snap the selection to the new queue head so the next draw goes to the right person.
-  useEffect(() => {
-    if (selectedRusher === "barricade") return;
-    const stillActive = rusherQueue.some((r) => r.twitch_name.toLowerCase() === selectedRusher.toLowerCase());
-    if (!stillActive) {
-      setSelectedRusher(rusherQueue[0]?.twitch_name ?? "barricade");
-    }
-  }, [rusherQueue, selectedRusher]);
 
   const runShuffleAnimation = useCallback((entriesList: typeof entries, durationMs: number) => {
     setShuffling(true);
@@ -160,46 +143,6 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
     return new Promise<void>((resolve) => setTimeout(resolve, durationMs));
   }, []);
 
-  const manualDraw = useCallback(async () => {
-    if (entries.length === 0) return;
-    setDrawError(null);
-    setSortAlpha(false);
-    const rusherForDraw = selectedRusher;
-    const isBarricade = rusherForDraw.toLowerCase() === "barricade";
-    // Kick off shuffle animation and API call in parallel
-    const [, res] = await Promise.all([
-      runShuffleAnimation(entries, 1200),
-      fetch("/api/raffle/draw", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ count: drawCount, rusher: rusherForDraw }),
-      }),
-    ]);
-    if (res.ok) {
-      const data = await res.json();
-      setLastDraw({ winners: data.winners, rusher: data.rusher });
-      setRaffleState((prev) => ({ ...prev, active: false, end_time: null }));
-      const winnerSet = new Set((data.winners as string[]).map((w: string) => w.toLowerCase()));
-      setEntries((prev) => prev.filter((e) => !winnerSet.has(e.twitch_name.toLowerCase())));
-      // Remove drawn rusher from active list — they're now off_duty on the server
-      if (!isBarricade) {
-        setRusherQueue((prev) => {
-          const copy = prev.filter((r) => r.twitch_name.toLowerCase() !== rusherForDraw.toLowerCase());
-          const newHead = copy[0];
-          if (newHead) {
-            setSelectedRusher(newHead.twitch_name);
-            setDrawCount((c) => { const v = newHead.group_size; localStorage.setItem("ftk_draw_count", String(v)); return v; });
-          } else {
-            setSelectedRusher("barricade");
-          }
-          return copy;
-        });
-      }
-    } else {
-      const body = await res.json().catch(() => ({}));
-      setDrawError(body.error ?? "Draw failed");
-    }
-  }, [entries, drawCount, selectedRusher, runShuffleAnimation]);
 
   const quickDrawForHead = useCallback(async () => {
     const head = rusherQueue[0];
@@ -220,17 +163,7 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
       setRaffleState((prev) => ({ ...prev, active: false, end_time: null }));
       const winnerSet = new Set((data.winners as string[]).map((w: string) => w.toLowerCase()));
       setEntries((prev) => prev.filter((e) => !winnerSet.has(e.twitch_name.toLowerCase())));
-      setRusherQueue((prev) => {
-        const copy = prev.filter((r) => r.twitch_name.toLowerCase() !== head.twitch_name.toLowerCase());
-        const newHead = copy[0];
-        if (newHead) {
-          setSelectedRusher(newHead.twitch_name);
-          setDrawCount(() => { const v = newHead.group_size; localStorage.setItem("ftk_draw_count", String(v)); return v; });
-        } else {
-          setSelectedRusher("barricade");
-        }
-        return copy;
-      });
+      setRusherQueue((prev) => prev.filter((r) => r.twitch_name.toLowerCase() !== head.twitch_name.toLowerCase()));
     } else {
       const body = await res.json().catch(() => ({}));
       setDrawError(body.error ?? "Draw failed");
@@ -276,11 +209,6 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
         if (prev.length < 2) return prev;
         const [skipped, drawn, ...rest] = prev;
         const updated = [...rest, skipped];
-        const newHead = updated[0];
-        if (newHead) {
-          setSelectedRusher(newHead.twitch_name);
-          setDrawCount(() => { const v = newHead.group_size; localStorage.setItem("ftk_draw_count", String(v)); return v; });
-        }
         return updated.filter((r) => r.twitch_name.toLowerCase() !== drawn.twitch_name.toLowerCase());
       });
     } else {
@@ -596,42 +524,15 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
 
             {/* Manual draw */}
             {drawError && <p className="text-xs text-red-400">{drawError}</p>}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-zinc-400 w-10 shrink-0">For:</span>
-                <select
-                  value={selectedRusher}
-                  onChange={(e) => setSelectedRusher(e.target.value)}
-                  className="flex-1 rounded bg-zinc-800 border border-zinc-700 px-2 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-zinc-500"
-                >
-                  {rusherQueue.map((r) => (
-                    <option key={r.id} value={r.twitch_name}>
-                      {r.twitch_name} ×{r.group_size}
-                    </option>
-                  ))}
-                  <option value="barricade">Barricade (no rusher)</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-zinc-400 w-10 shrink-0">Draw:</span>
-                <button
-                  onClick={() => setDrawCount((n) => { const v = Math.max(1, n - 1); localStorage.setItem("ftk_draw_count", String(v)); return v; })}
-                  className="w-7 h-7 rounded bg-zinc-800 hover:bg-zinc-700 text-sm"
-                >▼</button>
-                <span className="tabular-nums text-sm font-bold text-white w-5 text-center">{drawCount}</span>
-                <button
-                  onClick={() => setDrawCount((n) => { const v = Math.min(5, n + 1); localStorage.setItem("ftk_draw_count", String(v)); return v; })}
-                  className="w-7 h-7 rounded bg-zinc-800 hover:bg-zinc-700 text-sm"
-                >▲</button>
-                <button
-                  onClick={manualDraw}
-                  disabled={entries.length === 0}
-                  className="flex-1 rounded-lg bg-green-700 hover:bg-green-600 disabled:opacity-40 py-2 text-sm font-semibold transition-colors"
-                >
-                  ▶ Manual Draw
-                </button>
-              </div>
-            </div>
+            <button
+              onClick={quickDrawForHead}
+              disabled={entries.length === 0 || rusherQueue.length === 0}
+              className="w-full rounded-lg bg-green-700 hover:bg-green-600 disabled:opacity-40 py-2 text-sm font-semibold transition-colors"
+            >
+              {rusherQueue.length > 0
+                ? `▶ Draw for ${rusherQueue[0].twitch_name} ×${rusherQueue[0].group_size}`
+                : "▶ Manual Draw"}
+            </button>
           </div>
         </div>
 
