@@ -69,6 +69,21 @@ export default function RushersPanel({ initialQueue, carryCounts }: Props) {
     setQueue((prev) => prev.map((r) => r.id === id ? { ...r, off_duty: false } : r));
   }, []);
 
+  const addTestRushers = useCallback(async () => {
+    const tests = [
+      { twitch_name: "Rusher1", group_size: 1 },
+      { twitch_name: "Rusher2", group_size: 2 },
+      { twitch_name: "Rusher3", group_size: 3 },
+    ];
+    for (const r of tests) {
+      await fetch("/api/rushers/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(r),
+      });
+    }
+  }, []);
+
   const addRusher = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
@@ -93,11 +108,19 @@ export default function RushersPanel({ initialQueue, carryCounts }: Props) {
 
   return (
     <div className="max-w-xl space-y-6">
-      <div>
-        <h1 className="text-xl font-bold text-white">Rusher Queue</h1>
-        <p className="text-xs text-zinc-500 mt-0.5">
-          Rushers sign up via <span className="font-mono text-zinc-400">!onduty [#]</span> in chat. You can also add them manually below.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold text-white">Rusher Queue</h1>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            Rushers sign up via <span className="font-mono text-zinc-400">!onduty [#]</span> in chat. You can also add them manually below.
+          </p>
+        </div>
+        <button
+          onClick={addTestRushers}
+          className="px-3 py-1.5 rounded bg-zinc-700 hover:bg-zinc-600 text-xs text-zinc-400 whitespace-nowrap flex-shrink-0"
+        >
+          + Test Rushers
+        </button>
       </div>
 
       {/* Active queue */}
