@@ -17,11 +17,13 @@ export default async function AnalyticsPage() {
     supabase
       .from("ftk_draw_log")
       .select("*")
+      .eq("channel", "barricade")
       .order("drawn_at", { ascending: false })
       .limit(100),
     supabase
       .from("ftk_draw_log")
       .select("rusher_twitch_name, winners, drawn_at")
+      .eq("channel", "barricade")
       .order("drawn_at", { ascending: false }),
   ]);
 

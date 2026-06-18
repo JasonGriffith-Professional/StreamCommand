@@ -12,8 +12,11 @@ export async function POST(req: Request) {
   if (!entries || entries.length === 0)
     return NextResponse.json({ error: "No entries" }, { status: 400 });
 
-  const { data: queueHead } = await supabase
-    .from("ftk_rusher_queue").select("twitch_name").eq("off_duty", false).order("position").limit(1).single();
+  const [{ data: queueHead }, { data: stateData }] = await Promise.all([
+    supabase.from("ftk_rusher_queue").select("twitch_name").eq("off_duty", false).order("position").limit(1).single(),
+    supabase.from("ftk_raffle_state").select("active_channel").eq("id", 1).single(),
+  ]);
+  const channel = (stateData as { active_channel?: string } | null)?.active_channel ?? "barricade";
 
   // Shuffle 3x
   const pool = entries.map((e) => e.twitch_name);
@@ -34,6 +37,7 @@ export async function POST(req: Request) {
     group_size: count,
     entries_count: entries.length,
     winners,
+    channel,
   });
   if (logError) return NextResponse.json({ error: logError.message }, { status: 500 });
 

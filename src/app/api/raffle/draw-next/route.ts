@@ -23,10 +23,12 @@ export async function POST() {
   const next = rest[0]; // rusher B
   const count = next.group_size;
 
-  // Load remaining entries
-  const { data: entries } = await supabase
-    .from("ftk_raffle_entries")
-    .select("twitch_name");
+  // Load remaining entries and current channel
+  const [{ data: entries }, { data: stateData }] = await Promise.all([
+    supabase.from("ftk_raffle_entries").select("twitch_name"),
+    supabase.from("ftk_raffle_state").select("active_channel").eq("id", 1).single(),
+  ]);
+  const channel = (stateData as { active_channel?: string } | null)?.active_channel ?? "barricade";
 
   if (!entries || entries.length === 0)
     return NextResponse.json({ error: "No entries remaining" }, { status: 400 });
@@ -48,6 +50,7 @@ export async function POST() {
     group_size: count,
     entries_count: entries.length,
     winners,
+    channel,
   });
   if (logError) return NextResponse.json({ error: logError.message }, { status: 500 });
 
