@@ -120,7 +120,6 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
 
   const [drawError, setDrawError] = useState<string | null>(null);
   const [lastDraw, setLastDraw] = useState<{ winners: string[]; rusher: string | null } | null>(null);
-  const [skippingNext, setSkippingNext] = useState(false);
   const [shuffling, setShuffling] = useState(false);
   const [sortAlpha, setSortAlpha] = useState(false);
 
@@ -191,32 +190,6 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
     }
   }, [raffleState.active]);
 
-  const skipAndDrawNext = useCallback(async () => {
-    if (rusherQueue.length < 2 || entries.length === 0) return;
-    setSkippingNext(true);
-    setDrawError(null);
-    const [, res] = await Promise.all([
-      runShuffleAnimation(entries, 1200),
-      fetch("/api/raffle/draw-next", { method: "POST" }),
-    ]);
-    if (res.ok) {
-      const data = await res.json();
-      setLastDraw({ winners: data.winners, rusher: data.rusher });
-      const winnerSet = new Set((data.winners as string[]).map((w: string) => w.toLowerCase()));
-      setEntries((prev) => prev.filter((e) => !winnerSet.has(e.twitch_name.toLowerCase())));
-      // Head moves to back (still active), drawn rusher removed
-      setRusherQueue((prev) => {
-        if (prev.length < 2) return prev;
-        const [skipped, drawn, ...rest] = prev;
-        const updated = [...rest, skipped];
-        return updated.filter((r) => r.twitch_name.toLowerCase() !== drawn.twitch_name.toLowerCase());
-      });
-    } else {
-      const body = await res.json().catch(() => ({}));
-      setDrawError(body.error ?? "Skip draw failed");
-    }
-    setSkippingNext(false);
-  }, [rusherQueue, entries, runShuffleAnimation]);
 
   const [manualEntry, setManualEntry] = useState("");
   const addManualEntry = useCallback(async () => {
@@ -573,14 +546,6 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
                       <p className="text-xs text-zinc-500">×{r.group_size} group</p>
                     </div>
                     <div className="flex gap-1 flex-shrink-0">
-                      {i === 0 && rusherQueue.length >= 2 && entries.length > 0 && (
-                        <button
-                          onClick={skipAndDrawNext}
-                          disabled={skippingNext}
-                          className="px-1.5 h-7 rounded bg-amber-900/60 hover:bg-amber-800/60 disabled:opacity-40 text-amber-300 text-xs font-medium whitespace-nowrap"
-                          title="Skip this rusher (send to back) and draw for the next one"
-                        >⏭ Skip</button>
-                      )}
                       <button
                         onClick={() => moveRusher(r.id, "up")}
                         disabled={i === 0}
