@@ -129,8 +129,8 @@ export default async function AnalyticsPage() {
             <div className="rounded-xl border border-zinc-800 bg-zinc-900 divide-y divide-zinc-800">
               {draws.map((log) => {
                 const dt = new Date(log.drawn_at);
-                const dateStr = dt.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-                const timeStr = dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+                const dateStr = dt.toLocaleDateString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", year: "numeric" });
+                const timeStr = dt.toLocaleTimeString("en-US", { timeZone: "America/Chicago", hour: "2-digit", minute: "2-digit" });
                 return (
                   <div key={log.id} className="px-5 py-4 flex items-start gap-4">
                     <div className="text-right min-w-[90px]">

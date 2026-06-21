@@ -8,6 +8,15 @@ interface RusherQueueRow { id: number; position: number; twitch_name: string; gr
 interface RaffleState { active: boolean; end_time: string | null; rusher_twitch_name: string | null; entry_count: number; paused: boolean; pause_remaining_secs: number | null; }
 interface RaffleEntry { id: number; twitch_name: string; joined_at: string; }
 interface BadActor { id: number; twitch_name: string; ascend_backouts: number; offduty_backouts: number; banned: boolean; notes: string; }
+interface DrawLog { id: number; drawn_at: string; rusher_twitch_name: string | null; winners: string[]; group_size: number; draw_type?: string; }
+
+function cstTime(isoStr: string) {
+  const dt = new Date(isoStr);
+  return {
+    time: dt.toLocaleTimeString("en-US", { timeZone: "America/Chicago", hour: "2-digit", minute: "2-digit" }),
+    date: dt.toLocaleDateString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric" }),
+  };
+}
 
 interface Props {
   initialRusherQueue: RusherQueueRow[];
@@ -28,6 +37,19 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
   const [activeChannel, setActiveChannel] = useState(initialChannel);
   const [testTimer, setTestTimer] = useState(initialTestTimer);
   const [switchingChannel, setSwitchingChannel] = useState(false);
+
+  const fetchDrawLog = useCallback(async () => {
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("ftk_draw_log")
+      .select("id, drawn_at, rusher_twitch_name, winners, group_size, draw_type")
+      .eq("channel", "barricade")
+      .order("drawn_at", { ascending: false })
+      .limit(15);
+    if (data) setDrawLog(data as DrawLog[]);
+  }, []);
+
+  useEffect(() => { fetchDrawLog(); }, [fetchDrawLog]);
 
   // Realtime subscriptions
   useEffect(() => {
@@ -54,9 +76,12 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
           if (data) setBadActors(data);
         });
       })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "ftk_draw_log" }, () => {
+        fetchDrawLog();
+      })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [fetchDrawLog]);
 
   // Polling fallback — bot writes via service role which doesn't always trigger realtime
   useEffect(() => {
@@ -122,6 +147,11 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
   const [lastDraw, setLastDraw] = useState<{ winners: string[]; rusher: string | null } | null>(null);
   const [shuffling, setShuffling] = useState(false);
   const [sortAlpha, setSortAlpha] = useState(false);
+  const [drawLog, setDrawLog] = useState<DrawLog[]>([]);
+  const [manualDrawCount, setManualDrawCount] = useState(1);
+  const [manualDrawing, setManualDrawing] = useState(false);
+  const [manualDrawError, setManualDrawError] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
 
   const runShuffleAnimation = useCallback((entriesList: typeof entries, durationMs: number) => {
     setShuffling(true);
@@ -168,6 +198,30 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
       setDrawError(body.error ?? "Draw failed");
     }
   }, [rusherQueue, entries, runShuffleAnimation]);
+
+  const manualDraw = useCallback(async () => {
+    if (entries.length === 0) return;
+    setManualDrawError(null);
+    setManualDrawing(true);
+    setSortAlpha(false);
+    const [, res] = await Promise.all([
+      runShuffleAnimation(entries, 800),
+      fetch("/api/raffle/draw-manual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ count: manualDrawCount }),
+      }),
+    ]);
+    setManualDrawing(false);
+    if (res.ok) {
+      const data = await res.json();
+      const winnerSet = new Set((data.winners as string[]).map((w: string) => w.toLowerCase()));
+      setEntries((prev) => prev.filter((e) => !winnerSet.has(e.twitch_name.toLowerCase())));
+    } else {
+      const body = await res.json().catch(() => ({}));
+      setManualDrawError(body.error ?? "Manual draw failed");
+    }
+  }, [entries, manualDrawCount, runShuffleAnimation]);
 
   const reopenQueue = useCallback(async () => {
     if (raffleState.active) {
@@ -495,7 +549,7 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
               {raffleState.active ? "⛔ Close Queue" : "🔄 Reopen Queue (new 130s window)"}
             </button>
 
-            {/* Manual draw */}
+            {/* Draw for current rusher */}
             {drawError && <p className="text-xs text-red-400">{drawError}</p>}
             <button
               onClick={quickDrawForHead}
@@ -504,8 +558,28 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
             >
               {rusherQueue.length > 0
                 ? `▶ Draw for ${rusherQueue[0].twitch_name} ×${rusherQueue[0].group_size}`
-                : "▶ Manual Draw"}
+                : "▶ Draw for Rusher"}
             </button>
+
+            {/* Manual draw — always available, sends to Barricade */}
+            <div className="flex gap-2 items-center">
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={manualDrawCount}
+                onChange={(e) => setManualDrawCount(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)))}
+                className="w-16 rounded-lg bg-zinc-800 border border-zinc-700 px-2 py-2 text-sm text-center text-zinc-200 focus:outline-none focus:border-zinc-500"
+              />
+              <button
+                onClick={manualDraw}
+                disabled={entries.length === 0 || manualDrawing}
+                className="flex-1 rounded-lg bg-blue-800 hover:bg-blue-700 disabled:opacity-40 py-2 text-sm font-semibold transition-colors"
+              >
+                {manualDrawing ? "Drawing…" : `⚡ Manual Draw ×${manualDrawCount}`}
+              </button>
+            </div>
+            {manualDrawError && <p className="text-xs text-red-400">{manualDrawError}</p>}
           </div>
         </div>
 
@@ -570,6 +644,59 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
             )}
           </div>
         </div>
+      </div>
+
+      {/* Draw log */}
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900">
+        <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
+          <h2 className="font-semibold text-white text-sm">Recent Draws</h2>
+          <span className="text-xs text-zinc-600">CST · last {drawLog.length}</span>
+        </div>
+        {drawLog.length === 0 ? (
+          <p className="text-xs text-zinc-600 italic text-center p-6">No draws yet.</p>
+        ) : (
+          <div className="divide-y divide-zinc-800">
+            {drawLog.map((log) => {
+              const { time, date } = cstTime(log.drawn_at);
+              const isManual = log.draw_type === "manual";
+              const copyText = log.winners?.length
+                ? isManual
+                  ? `@barricade here are your ${log.winners.length} manual draws: ${log.winners.map((w) => `@${w}`).join(" ")}`
+                  : log.rusher_twitch_name
+                    ? `@barricade - @${log.rusher_twitch_name} carrying ${log.winners.map((w) => `@${w}`).join(" ")}`
+                    : log.winners.map((w) => `@${w}`).join(" ")
+                : "";
+              return (
+                <div key={log.id} className="px-4 py-3 flex items-center gap-4">
+                  <div className="text-right min-w-[64px] flex-shrink-0">
+                    <p className="text-xs text-zinc-400">{time}</p>
+                    <p className="text-xs text-zinc-600">{date}</p>
+                  </div>
+                  <div className="flex-1 flex flex-wrap gap-1.5 items-center min-w-0">
+                    {isManual ? (
+                      <span className="text-xs text-blue-400 font-medium flex-shrink-0">manual:</span>
+                    ) : log.rusher_twitch_name ? (
+                      <span className="text-xs text-green-400 font-medium flex-shrink-0">{log.rusher_twitch_name}:</span>
+                    ) : null}
+                    {(log.winners ?? []).map((w) => (
+                      <span key={w} className="text-sm font-medium text-white bg-zinc-800 px-2 py-0.5 rounded-full">@{w}</span>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(copyText);
+                      setCopiedId(log.id);
+                      setTimeout(() => setCopiedId(null), 1500);
+                    }}
+                    className="flex-shrink-0 text-xs px-2 py-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
+                  >
+                    {copiedId === log.id ? "✓" : "Copy"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
