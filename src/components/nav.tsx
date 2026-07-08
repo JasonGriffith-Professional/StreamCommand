@@ -54,12 +54,6 @@ export default function Nav() {
   // Watch rusher queue for new entries
   useEffect(() => {
     const supabase = createClient();
-
-    // Get initial count so we don't fire on page load
-    supabase.from("ftk_rusher_queue").select("id", { count: "exact", head: true }).then(({ count }) => {
-      prevCountRef.current = count ?? 0;
-    });
-
     const channel = supabase
       .channel("nav-rusher-watch")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "ftk_rusher_queue" }, () => {
