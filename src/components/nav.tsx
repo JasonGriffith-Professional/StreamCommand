@@ -42,7 +42,6 @@ export default function Nav() {
   const router = useRouter();
   const [soundOn, setSoundOn] = useState(false);
   const soundOnRef = useRef(false);
-  const prevCountRef = useRef<number | null>(null);
 
   // Load preference from localStorage
   useEffect(() => {
