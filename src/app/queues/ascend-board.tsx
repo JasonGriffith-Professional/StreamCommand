@@ -215,6 +215,7 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
     setManualDrawing(false);
     if (res.ok) {
       const data = await res.json();
+      setLastDraw({ winners: data.winners, rusher: "barricade" });
       const winnerSet = new Set((data.winners as string[]).map((w: string) => w.toLowerCase()));
       setEntries((prev) => prev.filter((e) => !winnerSet.has(e.twitch_name.toLowerCase())));
     } else {
