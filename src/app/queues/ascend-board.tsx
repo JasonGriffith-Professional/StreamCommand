@@ -246,6 +246,30 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
   }, [raffleState.active]);
 
 
+  const [addRusherName, setAddRusherName] = useState("");
+  const [addRusherSize, setAddRusherSize] = useState(5);
+  const [addRusherError, setAddRusherError] = useState<string | null>(null);
+  const [addingRusher, setAddingRusher] = useState(false);
+
+  const addRusher = useCallback(async () => {
+    const name = addRusherName.trim();
+    if (!name) return;
+    setAddRusherError(null);
+    setAddingRusher(true);
+    const res = await fetch("/api/rushers/queue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ twitch_name: name, group_size: addRusherSize }),
+    });
+    setAddingRusher(false);
+    if (res.ok) {
+      setAddRusherName("");
+    } else {
+      const body = await res.json().catch(() => ({}));
+      setAddRusherError(body.error ?? "Failed to add rusher");
+    }
+  }, [addRusherName, addRusherSize]);
+
   const [manualEntry, setManualEntry] = useState("");
   const addManualEntry = useCallback(async () => {
     const name = manualEntry.trim();
