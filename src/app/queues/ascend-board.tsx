@@ -668,6 +668,38 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
               </div>
             )}
           </div>
+
+          {/* Add Rusher */}
+          <div className="border-t border-zinc-800 p-4 space-y-2">
+            <div className="flex gap-2">
+              <input
+                value={addRusherName}
+                onChange={(e) => setAddRusherName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addRusher()}
+                placeholder="Add rusher…"
+                className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-zinc-500"
+              />
+              <select
+                value={addRusherSize}
+                onChange={(e) => setAddRusherSize(Number(e.target.value))}
+                className="w-16 rounded-lg bg-zinc-800 border border-zinc-700 px-2 py-2 text-sm text-zinc-200 focus:outline-none focus:border-zinc-500"
+              >
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <option key={n} value={n}>×{n}</option>
+                ))}
+              </select>
+              <button
+                onClick={addRusher}
+                disabled={!addRusherName.trim() || addingRusher}
+                className="px-3 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 disabled:opacity-40 text-sm font-medium transition-colors"
+              >
+                {addingRusher ? "…" : "+ Add"}
+              </button>
+            </div>
+            {addRusherError && (
+              <p className="text-xs text-red-400">{addRusherError}</p>
+            )}
+          </div>
         </div>
       </div>
 
