@@ -14,9 +14,21 @@ const links = [
   { href: "/analytics", label: "Analytics" },
 ];
 
+// Singleton AudioContext — created once on first user gesture, reused for all chimes.
+// A new AudioContext created in a non-gesture callback (e.g. Realtime WebSocket) starts
+// in "suspended" state and plays no audio; reusing one that was already unlocked avoids that.
+let _audioCtx: AudioContext | null = null;
+
 function playChime() {
   try {
-    const ctx = new AudioContext();
+    if (!_audioCtx) {
+      _audioCtx = new AudioContext();
+    }
+    const ctx = _audioCtx;
+    // Resume in case the context was suspended (navigating away and back, etc.)
+    if (ctx.state === "suspended") {
+      ctx.resume();
+    }
     const frequencies = [880, 1108, 1318]; // A5, C#6, E6 — a bright major chord
     frequencies.forEach((freq, i) => {
       const osc = ctx.createOscillator();
