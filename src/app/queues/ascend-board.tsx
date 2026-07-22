@@ -135,6 +135,14 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
     await fetch(`/api/rushers/queue/${id}`, { method: "DELETE" });
   }, []);
 
+  // Pull one viewer out of the raffle (e.g. they said they have to step away).
+  // Optimistic remove for a snappy feel; realtime/polling reconciles all clients.
+  const removeEntry = useCallback(async (id: number, name: string) => {
+    if (!confirm(`Remove ${name} from the queue?`)) return;
+    setEntries((prev) => prev.filter((e) => e.id !== id));
+    await fetch(`/api/raffle/entries/${id}`, { method: "DELETE" });
+  }, []);
+
   const toggleBan = useCallback(async (actor: BadActor) => {
     await fetch(`/api/bad-actors/${actor.id}`, {
       method: "PATCH",
@@ -530,12 +538,19 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
                   <div
                     key={e.id}
                     className={cn(
-                      "flex items-center gap-3 px-3 py-1.5 rounded text-sm transition-all",
+                      "group flex items-center gap-3 px-3 py-1.5 rounded text-sm transition-all",
                       shuffling ? "duration-75" : "hover:bg-zinc-800/50"
                     )}
                   >
                     <span className="text-zinc-600 tabular-nums w-6 text-right">{i + 1}.</span>
-                    <span className={cn("text-zinc-200", shuffling && "blur-[0.5px]")}>{e.twitch_name}</span>
+                    <span className={cn("flex-1 text-zinc-200", shuffling && "blur-[0.5px]")}>{e.twitch_name}</span>
+                    {!shuffling && (
+                      <button
+                        onClick={() => removeEntry(e.id, e.twitch_name)}
+                        className="opacity-0 group-hover:opacity-100 focus:opacity-100 w-6 h-6 rounded bg-red-900/60 hover:bg-red-800/60 text-red-400 text-xs flex-shrink-0 transition-opacity"
+                        title="Remove from queue"
+                      >✕</button>
+                    )}
                   </div>
                 ))}
               </div>
