@@ -23,7 +23,7 @@ export default async function QueuesPage() {
       <main className="p-6">
         <AscendBoard
           initialRusherQueue={rusherQueue ?? []}
-          initialRaffleState={raffleState ?? { active: false, end_time: null, rusher_twitch_name: null, entry_count: 0, paused: false, pause_remaining_secs: null }}
+          initialRaffleState={raffleState ?? { active: false, end_time: null, rusher_twitch_name: null, entry_count: 0, paused: false, pause_remaining_secs: null, command_name: "ascend", raffle_duration_secs: 130 }}
           initialEntries={raffleEntries ?? []}
           initialBadActors={badActors ?? []}
           initialChannel={(raffleState as { active_channel?: string } | null)?.active_channel ?? "barricade"}

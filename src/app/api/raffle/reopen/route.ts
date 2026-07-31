@@ -14,13 +14,15 @@ export async function POST() {
   }
 
   const supabase = await createClient();
-  const endTime = new Date(Date.now() + 130_000).toISOString();
 
   const [{ data: stateRow }, { data: queueHead }] = await Promise.all([
-    supabase.from("ftk_raffle_state").select("rusher_twitch_name").eq("id", 1).single(),
+    supabase.from("ftk_raffle_state").select("rusher_twitch_name, raffle_duration_secs").eq("id", 1).single(),
     supabase.from("ftk_rusher_queue").select("twitch_name").order("position").limit(1).single(),
   ]);
 
+  // Use the configured raffle length (falls back to 130s if the column is unset).
+  const durationSecs = (stateRow as { raffle_duration_secs?: number } | null)?.raffle_duration_secs ?? 130;
+  const endTime = new Date(Date.now() + durationSecs * 1000).toISOString();
   const rusher = stateRow?.rusher_twitch_name ?? queueHead?.twitch_name ?? null;
 
   const { error } = await supabase

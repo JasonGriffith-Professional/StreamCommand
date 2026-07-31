@@ -20,6 +20,8 @@ export interface RaffleState {
   paused: boolean;
   pause_remaining_secs: number | null;
   updated_at: string;
+  command_name: string;
+  raffle_duration_secs: number;
 }
 
 export interface RaffleEntry {
