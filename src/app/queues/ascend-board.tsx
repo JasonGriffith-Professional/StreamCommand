@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
 interface RusherQueueRow { id: number; position: number; twitch_name: string; group_size: number; off_duty: boolean; }
-interface RaffleState { active: boolean; end_time: string | null; rusher_twitch_name: string | null; entry_count: number; paused: boolean; pause_remaining_secs: number | null; }
+interface RaffleState { active: boolean; end_time: string | null; rusher_twitch_name: string | null; entry_count: number; paused: boolean; pause_remaining_secs: number | null; command_name: string; raffle_duration_secs: number; }
 interface RaffleEntry { id: number; twitch_name: string; joined_at: string; }
 interface BadActor { id: number; twitch_name: string; ascend_backouts: number; offduty_backouts: number; banned: boolean; notes: string; }
 interface DrawLog { id: number; drawn_at: string; rusher_twitch_name: string | null; winners: string[]; group_size: number; draw_type?: string; }
@@ -313,6 +313,48 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
     }
   }, []);
 
+  // ── Configurable command + timer (Settings panel) ──────────────────────────
+  const [showSettings, setShowSettings] = useState(false);
+  const [cmdDraft, setCmdDraft] = useState(raffleState.command_name ?? "ascend");
+  const [durDraft, setDurDraft] = useState(String(raffleState.raffle_duration_secs ?? 130));
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsSaved, setSettingsSaved] = useState(false);
+
+  // Keep the draft fields in sync when the panel is opened or values change
+  // elsewhere (another operator, or the bot). Only while the panel is closed,
+  // so we never clobber what someone is mid-edit.
+  useEffect(() => {
+    if (showSettings) return;
+    setCmdDraft(raffleState.command_name ?? "ascend");
+    setDurDraft(String(raffleState.raffle_duration_secs ?? 130));
+  }, [raffleState.command_name, raffleState.raffle_duration_secs, showSettings]);
+
+  const saveSettings = useCallback(async () => {
+    const cleanCmd = cmdDraft.trim().replace(/^!+/, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const dur = Math.max(5, Math.min(600, Math.round(Number(durDraft) || 0)));
+    setSettingsError(null);
+    setSavingSettings(true);
+    const res = await fetch("/api/raffle/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ command_name: cleanCmd, raffle_duration_secs: dur }),
+    });
+    setSavingSettings(false);
+    if (res.ok) {
+      const data = await res.json();
+      setRaffleState((prev) => ({ ...prev, command_name: data.command_name, raffle_duration_secs: data.raffle_duration_secs }));
+      setSettingsSaved(true);
+      setTimeout(() => setSettingsSaved(false), 1500);
+    } else {
+      const body = await res.json().catch(() => ({}));
+      setSettingsError(body.error ?? "Failed to save settings");
+    }
+  }, [cmdDraft, durDraft]);
+
+  // The active command word, used to label the board dynamically.
+  const cmd = raffleState.command_name || "ascend";
+
   const m = Math.floor(secondsLeft / 60);
   const s = secondsLeft % 60;
   const timerColor = secondsLeft <= 30 && raffleState.active ? "text-amber-400" : "text-green-400";
@@ -322,7 +364,7 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-white">Ascend Monitor</h1>
+          <h1 className="text-xl font-bold text-white">!{cmd} Monitor</h1>
           <p className="text-xs text-zinc-500 mt-0.5">Live control panel — changes sync to the bot instantly</p>
         </div>
         <div className="flex items-center gap-3">
@@ -392,8 +434,65 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
           >
             ⚠ Bad Actors {badActors.length > 0 && `(${badActors.length})`}
           </button>
+
+          <button
+            onClick={() => setShowSettings((v) => !v)}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 transition-colors"
+            title="Change the command word and timer length"
+          >
+            ⚙ Settings
+          </button>
         </div>
       </div>
+
+      {/* Settings panel — command word + timer length (saved to the DB, read live by the bot) */}
+      {showSettings && (
+        <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-4">
+          <h2 className="text-sm font-semibold text-zinc-200 mb-1">Raffle Settings</h2>
+          <p className="text-xs text-zinc-500 mb-3">
+            Change the command to fit the activity (boss, map, farm…) and set how long each raffle window stays open.
+            Saved to the database and picked up by the bot within ~2s — no restart needed.
+          </p>
+          <div className="flex flex-wrap items-end gap-4">
+            <div>
+              <label className="block text-xs text-zinc-500 mb-1">Command</label>
+              <div className="flex items-center rounded-lg bg-zinc-800 border border-zinc-700 focus-within:border-zinc-500">
+                <span className="pl-3 pr-1 text-zinc-500 text-sm select-none">!</span>
+                <input
+                  value={cmdDraft}
+                  onChange={(e) => setCmdDraft(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && saveSettings()}
+                  placeholder="ascend"
+                  className="w-40 bg-transparent py-2 pr-3 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-zinc-500 mb-1">Timer (seconds)</label>
+              <input
+                type="number"
+                min={5}
+                max={600}
+                value={durDraft}
+                onChange={(e) => setDurDraft(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && saveSettings()}
+                className="w-24 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-zinc-500"
+              />
+            </div>
+            <button
+              onClick={saveSettings}
+              disabled={savingSettings}
+              className="px-4 py-2 rounded-lg bg-purple-700 hover:bg-purple-600 disabled:opacity-40 text-sm font-medium text-white transition-colors"
+            >
+              {savingSettings ? "Saving…" : settingsSaved ? "Saved ✓" : "Save"}
+            </button>
+            <span className="text-xs text-zinc-500">
+              Currently: <span className="text-zinc-300 font-medium">!{cmd}</span> · <span className="text-zinc-300 font-medium">{raffleState.raffle_duration_secs ?? 130}s</span>
+            </span>
+          </div>
+          {settingsError && <p className="text-xs text-red-400 mt-2">{settingsError}</p>}
+        </div>
+      )}
 
       {/* Bad actors panel */}
       {showBadActors && (
@@ -478,7 +577,7 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
         <div className="lg:col-span-3 rounded-xl border border-zinc-800 bg-zinc-900 flex flex-col">
           <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
             <div className="flex items-center gap-3">
-              <h2 className="font-semibold text-white text-sm">!ascend Queue</h2>
+              <h2 className="font-semibold text-white text-sm">!{cmd} Queue</h2>
               <span className="text-xs bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded-full">
                 {entries.length} entries
               </span>
@@ -586,7 +685,7 @@ export default function AscendBoard({ initialRusherQueue, initialRaffleState, in
                   : "border-zinc-700 hover:bg-zinc-800"
               )}
             >
-              {raffleState.active ? "⛔ Close Queue" : "🔄 Reopen Queue (new 130s window)"}
+              {raffleState.active ? "⛔ Close Queue" : `🔄 Reopen Queue (new ${raffleState.raffle_duration_secs ?? 130}s window)`}
             </button>
 
             {/* Draw for current rusher */}
